@@ -11,7 +11,7 @@
   "quality": "1080p",
   "baseUrl": "https://streaming-community.fans/",
   "searchBaseUrl": "https://streamingcommunity.fans/archive?title=%s",
-  "scriptUrl": "https://git.luna-app.eu/sobet/sources/raw/branch/main/StreamingUnity/script.js",
+  "scriptUrl": "https://raw.githubusercontent.com/abdo45672/sora-modules2/refs/heads/main/script.js",
   "asyncJS": true,
   "type": "shows/movies",
   "supportsSora": true,
