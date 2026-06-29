@@ -1,17 +1,17 @@
 {
   "sourceName": "StreamingUnity",
-  "iconUrl": "https://play-lh.googleusercontent.com/-BHc2mPj6oRWk0cjwMn5oYSd7rYl5RW1xn8BWdizIHBuh4cBQ6ev_EsxmA4Trt0o2jQ",
+  "iconUrl": "https://github.com/abdo45672.png",
   "author": {
     "name": "QrsYAMI",
-    "icon": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRQPQ1qIiALbM3xDWGsuJzu6ItaQGwb9ICRRw&s"
+    "icon": "https://github.com/abdo45672.png"
   },
-  "version": "9000009",
+  "version": "9000010",
   "language": "Italian",
   "streamType": "HLS",
   "quality": "1080p",
   "baseUrl": "https://streaming-community.fans/",
   "searchBaseUrl": "https://streaming-community.fans/it/archive?search=%s",
-  "scriptUrl": "https://raw.githubusercontent.com/abdo45672/sora-modules2/refs/heads/main/script.js",
+  "scriptUrl": "script2.js",
   "asyncJS": true,
   "type": "shows/movies",
   "supportsSora": true,
