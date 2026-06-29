@@ -1,108 +1,243 @@
-// =============================================
-// Archive.org Movies - Sora Module
-// =============================================
+async function getLandingWebsiteHref() {
+    // update the link here if the old one doesn't work anymore
+    // don't set 'https://' or the final "/" since it will be added by the code
+    var href = "streaming-community.fans";
+    return href;
+}
 
-// 1. SEARCH
-// Called when the user types a search query in Sora.
-// Input:  keyword (string) — the search term
-// Output: JSON array of { title, image, href }
 async function searchResults(keyword) {
-    try {
-        const encoded = encodeURIComponent(keyword);
-        const response = await fetch(
-            `https://archive.org/advancedsearch.php?q=${encoded}+AND+mediatype:movies&fl[]=identifier,title,description,year,subject&rows=20&output=json`
-        );
-        const data = JSON.parse(response);
+    const landingUrl = await getLandingWebsiteHref()
 
-        const results = data.response.docs.map(item => ({
-            title: item.title || item.identifier,
-            image: `https://archive.org/services/img/${item.identifier}`,
-            href: `https://archive.org/details/${item.identifier}`
-        }));
+    const response = await soraFetch(
+        `https://${landingUrl}/it/archive?search=${keyword}`
+    );
+    const html = await response.text();
 
-        return JSON.stringify(results);
-    } catch (e) {
-        console.log('searchResults error:', e);
+    const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
+    const match = regex.exec(html);
+
+    if (!match || !match[1]) {
         return JSON.stringify([]);
     }
+
+    const dataPage = match[1].replaceAll(`&quot;`, `"`);
+    const pageData = JSON.parse(dataPage);
+    const titles = pageData.props?.titles || [];
+
+    const results =
+        titles
+        .map((item) => {
+            const posterImage = item.images?.find((img) => img.type === "poster");
+            return {
+                title: item.name?.replaceAll("amp;", "").replaceAll("&#39;", "'") || "",
+                image: posterImage?.filename ?
+                    `https://cdn.${landingUrl}/images/${posterImage.filename}` :
+                    "",
+                href: `https://${landingUrl}/it/titles/${item.id}-${item.slug}`,
+            };
+        })
+        .filter((item) => item.image) || [];
+
+    return JSON.stringify(results);
 }
 
-// 2. DETAILS
-// Called when the user taps on a search result.
-// Input:  url (string) — the href from searchResults
-// Output: JSON array of { description, aliases, airdate }
 async function extractDetails(url) {
-    try {
-        const id = url.split('/details/')[1].split('?')[0];
-        const response = await fetch(
-            `https://archive.org/metadata/${id}`
-        );
-        const data = JSON.parse(response);
-        const meta = data.metadata;
+    const baseUrl = await getLandingWebsiteHref()
 
-        const subject = meta.subject
-            ? (Array.isArray(meta.subject) ? meta.subject.join(', ') : meta.subject)
-            : 'N/A';
+    const response = await soraFetch(`${url}/season-1`);
+    const html = await response.text();
 
-        return JSON.stringify([{
-            description: meta.description || 'No description available.',
-            aliases: subject,
-            airdate: meta.year || meta.date || 'Unknown'
-        }]);
-    } catch (e) {
-        console.log('extractDetails error:', e);
-        return JSON.stringify([{
-            description: 'Error loading description.',
-            aliases: 'N/A',
-            airdate: 'Unknown'
-        }]);
+    const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
+    const match = regex.exec(html);
+
+    if (!match || !match[1]) {
+        return JSON.stringify([]);
     }
+
+    const dataPage = match[1].replaceAll(`&quot;`, `"`);
+    const pageData = JSON.parse(dataPage);
+    const titleData = pageData.props?.title;
+
+    if (!titleData) {
+        return JSON.stringify([]);
+    }
+
+    return JSON.stringify([{
+        description: titleData.plot?.replaceAll("amp;", "").replaceAll("&#39;", "'") ||
+            "N/A",
+        aliases: titleData.original_name
+            ?.replaceAll("amp;", "")
+            .replaceAll("&#39;", "'") || "N/A",
+        airdate: titleData.release_date || "N/A",
+    }, ]);
 }
 
-// 3. EPISODES
-// Called to build the episode list.
-// For movies there is only one item, so we return a single entry.
-// Input:  url (string) — the detail page URL
-// Output: JSON array of { href, number }
 async function extractEpisodes(url) {
     try {
-        return JSON.stringify([{
-            href: url,
-            number: "1"
-        }]);
-    } catch (e) {
-        console.log('extractEpisodes error:', e);
+        const landingUrl = await getLandingWebsiteHref()
+
+        const episodes = [];
+        const baseUrl = url.replace(/\/season-\d+$/, "");
+
+        const response = await soraFetch(`${baseUrl}/season-1`);
+        const html = await response.text();
+        const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
+        const match = regex.exec(html);
+
+        if (!match?.[1]) return JSON.stringify([]);
+
+        const pageData = JSON.parse(match[1].replaceAll(`&quot;`, `"`));
+        const titleData = pageData.props?.title;
+        if (!titleData) return JSON.stringify([]);
+
+        const titleId = titleData.id;
+        const totalSeasons = titleData.seasons_count || 1;
+
+        let hasEpisodes = false;
+
+        for (let season = 1; season <= totalSeasons; season++) {
+            try {
+                const seasonResponse = await soraFetch(`${baseUrl}/season-${season}`);
+                const seasonHtml = await seasonResponse.text();
+                const seasonMatch = regex.exec(seasonHtml);
+
+                if (seasonMatch?.[1]) {
+                    const seasonData = JSON.parse(
+                        seasonMatch[1].replaceAll(`&quot;`, `"`)
+                    );
+                    const seasonEpisodes = seasonData.props?.loadedSeason?.episodes || [];
+
+                    if (seasonEpisodes.length > 0) {
+                        hasEpisodes = true;
+                        seasonEpisodes.forEach((episode) => {
+                            episodes.push({
+                                href: `https://${landingUrl}/it/iframe/${titleId}?episode_id=${episode.id}`,
+                                number: episode.number || episodes.length + 1,
+                            });
+                        });
+                    }
+                }
+            } catch (error) {
+                console.log(`Error fetching season ${season}:`, error);
+            }
+        }
+
+        if (!hasEpisodes) {
+            episodes.push({
+                href: `https://${landingUrl}/it/iframe/${titleId}`,
+                number: 1,
+            });
+        }
+
+        return JSON.stringify(episodes);
+    } catch (error) {
+        console.log("Error extracting episodes:", error);
         return JSON.stringify([]);
     }
 }
 
-// 4. STREAM URL
-// Called when the user presses Play.
-// Fetches the archive metadata and finds the best video file available.
-// Input:  url (string) — the episode href
-// Output: direct video URL (string) or null
 async function extractStreamUrl(url) {
     try {
-        const id = url.split('/details/')[1].split('?')[0];
-        const response = await fetch(`https://archive.org/metadata/${id}`);
-        const data = JSON.parse(response);
+        let modifiedUrl = url;
+        if (!url.includes("/it/iframe") && !url.includes("/en/iframe")) {
+            modifiedUrl = url.replace("/iframe", "/it/iframe");
+        }
+        const response1 = await soraFetch(modifiedUrl);
+        const html1 = await response1.text();
 
-        const files = data.files || [];
-
-        // Prefer MP4, fall back to AVI or MKV
-        const video =
-            files.find(f => f.name.endsWith('.mp4')) ||
-            files.find(f => f.name.endsWith('.avi')) ||
-            files.find(f => f.name.endsWith('.mkv'));
-
-        if (video) {
-            return `https://archive.org/download/${id}/${encodeURIComponent(video.name)}`;
+        const iframeMatch = html1.match(/<iframe[^>]*src="([^"]*)"/);
+        if (!iframeMatch) {
+            console.log("No iframe found in the HTML.");
+            return null;
         }
 
-        console.log('No video file found for:', id);
+        const embedUrl = iframeMatch[1].replace(/amp;/g, "");
+        console.log("Embed URL:", embedUrl);
+
+        const response2 = await soraFetch(embedUrl);
+        const html2 = await response2.text();
+
+        let finalUrl = null;
+
+        if (html2.includes("window.masterPlaylist")) {
+            const urlMatch = html2.match(/url:\s*['"]([^'"]+)['"]/);
+            const tokenMatch = html2.match(/['"]?token['"]?\s*:\s*['"]([^'"]+)['"]/);
+            const expiresMatch = html2.match(
+                /['"]?expires['"]?\s*:\s*['"]([^'"]+)['"]/
+            );
+
+            if (urlMatch && tokenMatch && expiresMatch) {
+                const baseUrl = urlMatch[1];
+                const token = tokenMatch[1];
+                const expires = expiresMatch[1];
+
+                if (baseUrl.includes("?b=1")) {
+                    finalUrl = `${baseUrl}&token=${token}&expires=${expires}&h=1`;
+                } else {
+                    finalUrl = `${baseUrl}?token=${token}&expires=${expires}&h=1`;
+                }
+            }
+        }
+
+        if (!finalUrl) {
+            const m3u8Match = html2.match(/(https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)/);
+            if (m3u8Match) {
+                finalUrl = m3u8Match[1];
+            }
+        }
+
+        if (!finalUrl) {
+            const scriptMatches = html2.match(/<script[^>]*>(.*?)<\/script>/gs);
+            if (scriptMatches) {
+                for (const script of scriptMatches) {
+                    const streamMatch = script.match(
+                        /['"]?(https?:\/\/[^'"\s]+(?:\.m3u8|playlist)[^'"\s]*)/
+                    );
+                    if (streamMatch) {
+                        finalUrl = streamMatch[1];
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!finalUrl) {
+            const videoMatch = html2.match(
+                /(?:src|source|url)['"]?\s*[:=]\s*['"]?(https?:\/\/[^'"\s]+(?:\.mp4|\.m3u8|\.mpd)[^'"\s]*)/
+            );
+            if (videoMatch) {
+                finalUrl = videoMatch[2] || videoMatch[1];
+            }
+        }
+
+        if (finalUrl) {
+            console.log("Final URL found:", finalUrl);
+            return finalUrl;
+        } else {
+            console.log(
+                "No stream URL found. HTML content:",
+                html2.substring(0, 1000)
+            );
+            return null;
+        }
+    } catch (error) {
+        console.log("Fetch error:", error);
         return null;
+    }
+}
+
+async function soraFetch(url, options = {
+    headers: {},
+    method: 'GET',
+    body: null
+}) {
+    try {
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
     } catch (e) {
-        console.log('extractStreamUrl error:', e);
-        return null;
+        try {
+            return await fetch(url, options);
+        } catch (error) {
+            return null;
+        }
     }
 }
