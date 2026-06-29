@@ -1,0 +1,17 @@
+{
+  "sourceName": "Archive.org Movies",
+  "iconUrl": "https://archive.org/favicon.ico",
+  "author": {
+    "name": "YourName",
+    "icon": "https://archive.org/favicon.ico"
+  },
+  "version": "1.0.0",
+  "language": "English",
+  "streamType": "MP4",
+  "quality": "720p",
+  "baseUrl": "https://archive.org",
+  "searchBaseUrl": "https://archive.org/search?query=%s&mediatype=movies",
+  "scriptUrl": "https://YOUR_GITHUB_RAW_URL/script.js",
+  "asyncJS": true,
+  "type": "movies"
+}
