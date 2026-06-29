@@ -59,19 +59,31 @@ function parseTitles(titles, landingUrl) {
 async function extractDetails(url) {
     const cleanUrl = url.replace(/\/season-\d+$/, "");
     const response = await soraFetch(`${cleanUrl}/season-1`, {
-        headers: { "User-Agent": "Mozilla/5.0" }
+        headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-Inertia": "true"
+        }
     });
     if (!response) return JSON.stringify([]);
     const html = await response.text();
 
+    let titleData = null;
     const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
     const match = regex.exec(html);
 
-    if (!match || !match[1]) return JSON.stringify([]);
-
-    const dataPage = match[1].replaceAll(`&quot;`, `"`);
-    const pageData = JSON.parse(dataPage);
-    const titleData = pageData.props?.title;
+    if (!match || !match[1]) {
+        try {
+            const parsedJson = JSON.parse(html);
+            titleData = parsedJson.props?.title;
+        } catch(e) {
+            return JSON.stringify([]);
+        }
+    } else {
+        const dataPage = match[1].replaceAll(`&quot;`, `"`);
+        const pageData = JSON.parse(dataPage);
+        titleData = pageData.props?.title;
+    }
 
     if (!titleData) return JSON.stringify([]);
 
@@ -88,43 +100,70 @@ async function extractEpisodes(url) {
         const episodes = [];
         const baseUrl = url.replace(/\/season-\d+$/, "");
 
-        const response = await soraFetch(`${baseUrl}/season-1`);
+        const response = await soraFetch(`${baseUrl}/season-1`, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "X-Requested-With": "XMLHttpRequest",
+                "X-Inertia": "true"
+            }
+        });
         if (!response) return JSON.stringify([]);
         const html = await response.text();
+
+        let pageData = null;
         const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
         const match = regex.exec(html);
 
-        if (!match?.[1]) return JSON.stringify([]);
+        if (!match?.[1]) {
+            try {
+                pageData = JSON.parse(html);
+            } catch(e) {
+                return JSON.stringify([]);
+            }
+        } else {
+            pageData = JSON.parse(match[1].replaceAll(`&quot;`, `"`));
+        }
 
-        const pageData = JSON.parse(match[1].replaceAll(`&quot;`, `"`));
-        const titleData = pageData.props?.title;
+        const titleData = pageData?.props?.title;
         if (!titleData) return JSON.stringify([]);
 
         const titleId = titleData.id;
         const totalSeasons = titleData.seasons_count || 1;
-
         let hasEpisodes = false;
 
         for (let season = 1; season <= totalSeasons; season++) {
             try {
-                const seasonResponse = await soraFetch(`${baseUrl}/season-${season}`);
+                const seasonResponse = await soraFetch(`${baseUrl}/season-${season}`, {
+                    headers: {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "X-Inertia": "true"
+                    }
+                });
                 if (!seasonResponse) continue;
                 const seasonHtml = await seasonResponse.text();
+
+                let seasonData = null;
                 const seasonMatch = regex.exec(seasonHtml);
 
-                if (seasonMatch?.[1]) {
-                    const seasonData = JSON.parse(seasonMatch[1].replaceAll(`&quot;`, `"`));
-                    const seasonEpisodes = seasonData.props?.loadedSeason?.episodes || [];
+                if (!seasonMatch?.[1]) {
+                    try {
+                        seasonData = JSON.parse(seasonHtml);
+                    } catch(e) {}
+                } else {
+                    seasonData = JSON.parse(seasonMatch[1].replaceAll(`&quot;`, `"`));
+                }
 
-                    if (seasonEpisodes.length > 0) {
-                        hasEpisodes = true;
-                        seasonEpisodes.forEach((episode) => {
-                            episodes.push({
-                                href: `https://${landingUrl}/it/iframe/${titleId}?episode_id=${episode.id}`,
-                                number: episode.number || episodes.length + 1,
-                            });
+                const seasonEpisodes = seasonData?.props?.loadedSeason?.episodes || [];
+
+                if (seasonEpisodes.length > 0) {
+                    hasEpisodes = true;
+                    seasonEpisodes.forEach((episode) => {
+                        episodes.push({
+                            href: `https://${landingUrl}/it/iframe/${titleId}?episode_id=${episode.id}`,
+                            number: episode.number || episodes.length + 1,
                         });
-                    }
+                    });
                 }
             } catch (error) {
                 console.log(`Error fetching season ${season}:`, error);
