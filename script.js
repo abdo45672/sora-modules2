@@ -1,5 +1,6 @@
 async function getLandingWebsiteHref() {
-    return "streaming-community.fans";
+    // Updated to the .tech domain mirror
+    return "streamingcommunity.tech";
 }
 
 async function search(keyword) {
