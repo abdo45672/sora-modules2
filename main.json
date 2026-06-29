@@ -1,17 +1,22 @@
 {
-  "sourceName": "Archive.org Movies",
-  "iconUrl": "https://archive.org/favicon.ico",
+  "sourceName": "StreamingUnity",
+  "iconUrl": "https://play-lh.googleusercontent.com/-BHc2mPj6oRWk0cjwMn5oYSd7rYl5RW1xn8BWdizIHBuh4cBQ6ev_EsxmA4Trt0o2jQ",
   "author": {
-    "name": "YourName",
-    "icon": "https://archive.org/favicon.ico"
+    "name": "QrsYAMI",
+    "icon": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRQPQ1qIiALbM3xDWGsuJzu6ItaQGwb9ICRRw&s"
   },
-  "version": "1.0.0",
-  "language": "English",
-  "streamType": "MP4",
-  "quality": "720p",
-  "baseUrl": "https://archive.org",
-  "searchBaseUrl": "https://archive.org/search?query=%s&mediatype=movies",
-  "scriptUrl": "https://raw.githubusercontent.com/abdo45672/sora-modules2/refs/heads/main/script.js",
+  "version": "9000004",
+  "language": "Italian",
+  "streamType": "HLS",
+  "quality": "1080p",
+  "baseUrl": "https://streaming-community.fans/",
+  "searchBaseUrl": "https://streamingcommunity.fans/archive?title=%s",
+  "scriptUrl": "https://git.luna-app.eu/sobet/sources/raw/branch/main/StreamingUnity/script.js",
   "asyncJS": true,
-  "type": "movies"
+  "type": "shows/movies",
+  "supportsSora": true,
+  "supportsLuna": true,
+  "downloadSupport": false,
+  "supportsTsumi": true,
+  "supportsHiyoku": true
 }
