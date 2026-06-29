@@ -1,32 +1,46 @@
 async function getLandingWebsiteHref() {
-    // update the link here if the old one doesn't work anymore
-    // don't set 'https://' or the final "/" since it will be added by the code
-    var href = "streaming-community.fans";
-    return href;
+    return "streaming-community.fans";
 }
 
 async function search(keyword) {
     const landingUrl = await getLandingWebsiteHref();
 
     const response = await soraFetch(
-        `https://${landingUrl}/it/archive?search=${encodeURIComponent(keyword)}`
+        `https://${landingUrl}/it/archive?search=${encodeURIComponent(keyword)}`, 
+        {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "X-Requested-With": "XMLHttpRequest",
+                "X-Inertia": "true"
+            }
+        }
     );
+    
     if (!response) return JSON.stringify([]);
     const html = await response.text();
 
     const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
-    const match = regex.exec(html);
+    let match = regex.exec(html);
 
     if (!match || !match[1]) {
-        return JSON.stringify([]);
+        try {
+            const parsedJson = JSON.parse(html);
+            const titles = parsedJson.props?.titles || [];
+            return parseTitles(titles, landingUrl);
+        } catch(e) {
+            return JSON.stringify([]);
+        }
     }
 
     const dataPage = match[1].replaceAll(`&quot;`, `"`);
     const pageData = JSON.parse(dataPage);
     const titles = pageData.props?.titles || [];
 
-    const results =
-        titles
+    return parseTitles(titles, landingUrl);
+}
+
+function parseTitles(titles, landingUrl) {
+    const results = titles
         .map((item) => {
             const posterImage = item.images?.find((img) => img.type === "poster");
             return {
@@ -44,39 +58,33 @@ async function search(keyword) {
 
 async function extractDetails(url) {
     const cleanUrl = url.replace(/\/season-\d+$/, "");
-    const response = await soraFetch(`${cleanUrl}/season-1`);
+    const response = await soraFetch(`${cleanUrl}/season-1`, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+    });
     if (!response) return JSON.stringify([]);
     const html = await response.text();
 
     const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
     const match = regex.exec(html);
 
-    if (!match || !match[1]) {
-        return JSON.stringify([]);
-    }
+    if (!match || !match[1]) return JSON.stringify([]);
 
     const dataPage = match[1].replaceAll(`&quot;`, `"`);
     const pageData = JSON.parse(dataPage);
     const titleData = pageData.props?.title;
 
-    if (!titleData) {
-        return JSON.stringify([]);
-    }
+    if (!titleData) return JSON.stringify([]);
 
     return JSON.stringify([{
-        description: titleData.plot?.replaceAll("amp;", "").replaceAll("&#39;", "'") ||
-            "N/A",
-        aliases: titleData.original_name
-            ?.replaceAll("amp;", "")
-            .replaceAll("&#39;", "'") || "N/A",
+        description: titleData.plot?.replaceAll("amp;", "").replaceAll("&#39;", "'") || "N/A",
+        aliases: titleData.original_name?.replaceAll("amp;", "").replaceAll("&#39;", "'") || "N/A",
         airdate: titleData.release_date || "N/A",
-    }, ]);
+    }]);
 }
 
 async function extractEpisodes(url) {
     try {
         const landingUrl = await getLandingWebsiteHref();
-
         const episodes = [];
         const baseUrl = url.replace(/\/season-\d+$/, "");
 
@@ -105,9 +113,7 @@ async function extractEpisodes(url) {
                 const seasonMatch = regex.exec(seasonHtml);
 
                 if (seasonMatch?.[1]) {
-                    const seasonData = JSON.parse(
-                        seasonMatch[1].replaceAll(`&quot;`, `"`)
-                    );
+                    const seasonData = JSON.parse(seasonMatch[1].replaceAll(`&quot;`, `"`));
                     const seasonEpisodes = seasonData.props?.loadedSeason?.episodes || [];
 
                     if (seasonEpisodes.length > 0) {
@@ -134,7 +140,6 @@ async function extractEpisodes(url) {
 
         return JSON.stringify(episodes);
     } catch (error) {
-        console.log("Error extracting episodes:", error);
         return JSON.stringify([]);
     }
 }
@@ -150,14 +155,9 @@ async function extractStreamUrl(url) {
         const html1 = await response1.text();
 
         const iframeMatch = html1.match(/<iframe[^>]*src="([^"]*)"/);
-        if (!iframeMatch) {
-            console.log("No iframe found in the HTML.");
-            return null;
-        }
+        if (!iframeMatch) return null;
 
         const embedUrl = iframeMatch[1].replace(/amp;/g, "");
-        console.log("Embed URL:", embedUrl);
-
         const response2 = await soraFetch(embedUrl, {
             headers: { 'Referer': modifiedUrl }
         });
@@ -169,75 +169,29 @@ async function extractStreamUrl(url) {
         if (html2.includes("window.masterPlaylist")) {
             const urlMatch = html2.match(/url:\s*['"]([^'"]+)['"]/);
             const tokenMatch = html2.match(/['"]?token['"]?\s*:\s*['"]([^'"]+)['"]/);
-            const expiresMatch = html2.match(
-                /['"]?expires['"]?\s*:\s*['"]([^'"]+)['"]/
-            );
+            const expiresMatch = html2.match(/['"]?expires['"]?\s*:\s*['"]([^'"]+)['"]/);
 
             if (urlMatch && tokenMatch && expiresMatch) {
                 const baseUrl = urlMatch[1];
                 const token = tokenMatch[1];
                 const expires = expiresMatch[1];
-
-                if (baseUrl.includes("?b=1")) {
-                    finalUrl = `${baseUrl}&token=${token}&expires=${expires}&h=1`;
-                } else {
-                    finalUrl = `${baseUrl}?token=${token}&expires=${expires}&h=1`;
-                }
+                finalUrl = baseUrl.includes("?b=1") ? `${baseUrl}&token=${token}&expires=${expires}&h=1` : `${baseUrl}?token=${token}&expires=${expires}&h=1`;
             }
         }
 
         if (!finalUrl) {
             const m3u8Match = html2.match(/(https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)/);
-            if (m3u8Match) {
-                finalUrl = m3u8Match[1];
-            }
+            if (m3u8Match) finalUrl = m3u8Match[1];
         }
 
-        if (!finalUrl) {
-            const scriptMatches = html2.match(/<script[^>]*>(.*?)<\/script>/gs);
-            if (scriptMatches) {
-                for (const script of scriptMatches) {
-                    const streamMatch = script.match(
-                        /['"]?(https?:\/\/[^'"\s]+(?:\.m3u8|playlist)[^'"\s]*)/
-                    );
-                    if (streamMatch) {
-                        finalUrl = streamMatch[1];
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!finalUrl) {
-            const videoMatch = html2.match(
-                /(?:src|source|url)['"]?\s*[:=]\s*['"]?(https?:\/\/[^'"\s]+(?:\.mp4|\.m3u8|\.mpd)[^'"\s]*)/
-            );
-            if (videoMatch) {
-                finalUrl = videoMatch[2] || videoMatch[1];
-            }
-        }
-
-        if (finalUrl) {
-            console.log("Final URL found:", finalUrl);
-            return finalUrl;
-        } else {
-            console.log(
-                "No stream URL found. HTML content:",
-                html2.substring(0, 1000)
-            );
-            return null;
-        }
+        if (finalUrl) return finalUrl;
+        return null;
     } catch (error) {
-        console.log("Fetch error:", error);
         return null;
     }
 }
 
-async function soraFetch(url, options = {
-    headers: {},
-    method: 'GET',
-    body: null
-}) {
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
     try {
         return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
     } catch (e) {
