@@ -5,12 +5,13 @@ async function getLandingWebsiteHref() {
     return href;
 }
 
-async function searchResults(keyword) {
-    const landingUrl = await getLandingWebsiteHref()
+async function search(keyword) {
+    const landingUrl = await getLandingWebsiteHref();
 
     const response = await soraFetch(
-        `https://${landingUrl}/it/archive?search=${keyword}`
+        `https://${landingUrl}/it/archive?search=${encodeURIComponent(keyword)}`
     );
+    if (!response) return JSON.stringify([]);
     const html = await response.text();
 
     const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
@@ -42,9 +43,9 @@ async function searchResults(keyword) {
 }
 
 async function extractDetails(url) {
-    const baseUrl = await getLandingWebsiteHref()
-
-    const response = await soraFetch(`${url}/season-1`);
+    const cleanUrl = url.replace(/\/season-\d+$/, "");
+    const response = await soraFetch(`${cleanUrl}/season-1`);
+    if (!response) return JSON.stringify([]);
     const html = await response.text();
 
     const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
@@ -74,12 +75,13 @@ async function extractDetails(url) {
 
 async function extractEpisodes(url) {
     try {
-        const landingUrl = await getLandingWebsiteHref()
+        const landingUrl = await getLandingWebsiteHref();
 
         const episodes = [];
         const baseUrl = url.replace(/\/season-\d+$/, "");
 
         const response = await soraFetch(`${baseUrl}/season-1`);
+        if (!response) return JSON.stringify([]);
         const html = await response.text();
         const regex = /<div[^>]*id="app"[^>]*data-page="([^"]*)"/;
         const match = regex.exec(html);
@@ -98,6 +100,7 @@ async function extractEpisodes(url) {
         for (let season = 1; season <= totalSeasons; season++) {
             try {
                 const seasonResponse = await soraFetch(`${baseUrl}/season-${season}`);
+                if (!seasonResponse) continue;
                 const seasonHtml = await seasonResponse.text();
                 const seasonMatch = regex.exec(seasonHtml);
 
@@ -143,6 +146,7 @@ async function extractStreamUrl(url) {
             modifiedUrl = url.replace("/iframe", "/it/iframe");
         }
         const response1 = await soraFetch(modifiedUrl);
+        if (!response1) return null;
         const html1 = await response1.text();
 
         const iframeMatch = html1.match(/<iframe[^>]*src="([^"]*)"/);
@@ -154,7 +158,10 @@ async function extractStreamUrl(url) {
         const embedUrl = iframeMatch[1].replace(/amp;/g, "");
         console.log("Embed URL:", embedUrl);
 
-        const response2 = await soraFetch(embedUrl);
+        const response2 = await soraFetch(embedUrl, {
+            headers: { 'Referer': modifiedUrl }
+        });
+        if (!response2) return null;
         const html2 = await response2.text();
 
         let finalUrl = null;
