@@ -1,20 +1,16 @@
 const PROXY = "https://sc-proxy-lun2.vercel.app";
 const BASE  = "https://altadefinizionestreaming.com";
-// Your session cookie - update this if it expires
 const SID   = "890ca8133da39c493f462525c8a5f109b008a8ac96436e36d38f7b6cd23936c2";
 
 async function proxyFetch(path) {
     const url = `${PROXY}/api/proxy?url=${encodeURIComponent(BASE + path)}`;
     try {
-        const r = await fetchv2(url, {
-            "Accept": "application/json, text/html, */*",
-        }, 'GET', null);
+        const r = await fetchv2(url, { "Accept": "application/json, text/html, */*" }, 'GET', null);
         if (r) return r;
     } catch {}
     try { return await fetch(url); } catch { return null; }
 }
 
-// Direct fetch with sid cookie - for stream API which is IP-sensitive
 async function directFetch(path) {
     const url = BASE + path;
     try {
@@ -22,17 +18,12 @@ async function directFetch(path) {
             "Accept": "application/json",
             "Cookie": `sid=${SID}`,
             "Referer": BASE + "/",
-            "X-Requested-With": "XMLHttpRequest",
         }, 'GET', null);
         if (r) return r;
     } catch {}
     try {
         return await fetch(url, {
-            headers: {
-                "Accept": "application/json",
-                "Cookie": `sid=${SID}`,
-                "Referer": BASE + "/",
-            }
+            headers: { "Accept": "application/json", "Cookie": `sid=${SID}`, "Referer": BASE + "/" }
         });
     } catch { return null; }
 }
@@ -43,15 +34,29 @@ async function search(keyword) {
         const res = await proxyFetch(`/api/search-live?q=${encodeURIComponent(keyword)}`);
         if (!res) return JSON.stringify([]);
 
-        const data = await res.json();
-        const html = data.html || "";
+        const text = await res.text();
+        
+        // Parse the outer JSON first
+        let html = "";
+        try {
+            const data = JSON.parse(text);
+            html = data.html || "";
+        } catch {
+            html = text;
+        }
+
+        // Unescape the HTML (the JSON encoding escapes quotes and newlines)
+        html = html
+            .replace(/\\"/g, '"')
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, '\t')
+            .replace(/\\\//g, '/');
 
         const results = [];
         const tmdbIds = [...html.matchAll(/data-tmdb-id="(\d+)"/g)].map(x => x[1]);
         const titles  = [...html.matchAll(/data-title="([^"]+)"/g)].map(x => x[1]);
         const urls    = [...html.matchAll(/data-url="([^"]+)"/g)].map(x => x[1]);
         const posters = [...html.matchAll(/data-poster="([^"]+)"/g)].map(x => x[1]);
-        const types   = [...html.matchAll(/data-content-type="([^"]+)"/g)].map(x => x[1]);
 
         for (let i = 0; i < tmdbIds.length; i++) {
             results.push({
@@ -112,7 +117,6 @@ async function extractEpisodes(url) {
             }]);
         }
 
-        // Series
         const episodes = [];
         const seasonNums = [...html.matchAll(/data-season-number="(\d+)"/g)].map(m => m[1]);
         const seasons = seasonNums.length ? [...new Set(seasonNums)] : ["1"];
@@ -123,13 +127,6 @@ async function extractEpisodes(url) {
             const sData = await sRes.json();
             const eps   = sData.episodes || [];
 
-            if (eps.length === 0) {
-                episodes.push({
-                    href:   `${BASE}/api/player-sources/tv/${tmdbId}?season=${season}&episode=1`,
-                    number: parseInt(season) * 100 + 1,
-                });
-                continue;
-            }
             for (const ep of eps) {
                 const epNum = ep.number || ep.episode_number || 1;
                 episodes.push({
@@ -150,18 +147,15 @@ async function extractEpisodes(url) {
 }
 
 // ── STREAM URL ────────────────────────────────────────────────────────────────
-// Called directly (not via proxy) so the request comes from the device IP
 async function extractStreamUrl(url) {
     try {
         const path = url.replace(BASE, "");
-        // Try direct first (works if Sora sends cookies or device IP is trusted)
-        const res = await directFetch(path);
+        const res  = await directFetch(path);
         if (!res) return null;
 
         const data = await res.json();
         if (!data.sources || data.sources.length === 0) return null;
 
-        // Best CDN MP4 by priority
         const cdn = data.sources
             .filter(s => s.provider === "cdn" && s.url)
             .sort((a, b) => (a.priority || 99) - (b.priority || 99))[0];
