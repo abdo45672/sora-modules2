@@ -1,42 +1,67 @@
 const PROXY = "https://sc-proxy-lun2.vercel.app";
 const BASE  = "https://altadefinizionestreaming.com";
+// Your session cookie - update this if it expires
+const SID   = "890ca8133da39c493f462525c8a5f109b008a8ac96436e36d38f7b6cd23936c2";
 
-async function scFetch(path) {
+async function proxyFetch(path) {
     const url = `${PROXY}/api/proxy?url=${encodeURIComponent(BASE + path)}`;
     try {
-        const r = await fetchv2(url, {}, 'GET', null);
+        const r = await fetchv2(url, {
+            "Accept": "application/json, text/html, */*",
+        }, 'GET', null);
         if (r) return r;
     } catch {}
     try { return await fetch(url); } catch { return null; }
 }
 
+// Direct fetch with sid cookie - for stream API which is IP-sensitive
+async function directFetch(path) {
+    const url = BASE + path;
+    try {
+        const r = await fetchv2(url, {
+            "Accept": "application/json",
+            "Cookie": `sid=${SID}`,
+            "Referer": BASE + "/",
+            "X-Requested-With": "XMLHttpRequest",
+        }, 'GET', null);
+        if (r) return r;
+    } catch {}
+    try {
+        return await fetch(url, {
+            headers: {
+                "Accept": "application/json",
+                "Cookie": `sid=${SID}`,
+                "Referer": BASE + "/",
+            }
+        });
+    } catch { return null; }
+}
+
 // ── SEARCH ───────────────────────────────────────────────────────────────────
 async function search(keyword) {
     try {
-        const res = await scFetch(`/?s=${encodeURIComponent(keyword)}`);
+        const res = await proxyFetch(`/api/search-live?q=${encodeURIComponent(keyword)}`);
         if (!res) return JSON.stringify([]);
-        const html = await res.text();
+
+        const data = await res.json();
+        const html = data.html || "";
 
         const results = [];
-        // Each result card: <article ...> with link, title, image inside
-        const cardRegex = /<article[^>]*>([\s\S]*?)<\/article>/g;
-        let card;
-        while ((card = cardRegex.exec(html)) !== null) {
-            const block = card[1];
+        const tmdbIds = [...html.matchAll(/data-tmdb-id="(\d+)"/g)].map(x => x[1]);
+        const titles  = [...html.matchAll(/data-title="([^"]+)"/g)].map(x => x[1]);
+        const urls    = [...html.matchAll(/data-url="([^"]+)"/g)].map(x => x[1]);
+        const posters = [...html.matchAll(/data-poster="([^"]+)"/g)].map(x => x[1]);
+        const types   = [...html.matchAll(/data-content-type="([^"]+)"/g)].map(x => x[1]);
 
-            const hrefMatch  = block.match(/href="(https:\/\/altadefinizionestreaming\.com\/(?:film|serie)[^"]+)"/);
-            const titleMatch = block.match(/(?:title|alt)="([^"]+)"/);
-            const imgMatch   = block.match(/<img[^>]+src="([^"]+)"/);
-
-            if (hrefMatch && titleMatch) {
-                results.push({
-                    title: titleMatch[1].trim(),
-                    href:  hrefMatch[1],
-                    image: imgMatch ? imgMatch[1] : "",
-                });
-            }
+        for (let i = 0; i < tmdbIds.length; i++) {
+            results.push({
+                href:  BASE + (urls[i] || `/film/${tmdbIds[i]}`),
+                title: titles[i] || "",
+                image: posters[i] || "",
+            });
         }
-        return JSON.stringify(results);
+
+        return JSON.stringify(results.filter(r => r.title));
     } catch (e) {
         console.log("search error:", e);
         return JSON.stringify([]);
@@ -47,14 +72,19 @@ async function search(keyword) {
 async function extractDetails(url) {
     try {
         const path = url.replace(BASE, "");
-        const res  = await scFetch(path);
+        const res  = await proxyFetch(path);
         if (!res) return JSON.stringify([]);
         const html = await res.text();
 
-        const desc    = (html.match(/<meta name="description" content="([^"]+)"/) || [])[1] || "N/A";
-        const airdate = (html.match(/(\d{4})/) || [])[1] || "N/A";
+        const desc = (html.match(/data-plot="([^"]+)"/) || [])[1] ||
+                     (html.match(/<meta name="description" content="([^"]+)"/) || [])[1] || "N/A";
+        const year = (html.match(/data-year="(\d{4})"/) || [])[1] || "N/A";
 
-        return JSON.stringify([{ description: desc, aliases: "N/A", airdate }]);
+        return JSON.stringify([{
+            description: desc.replace(/\\n/g, ' '),
+            aliases: "N/A",
+            airdate: year,
+        }]);
     } catch (e) {
         console.log("details error:", e);
         return JSON.stringify([]);
@@ -65,50 +95,52 @@ async function extractDetails(url) {
 async function extractEpisodes(url) {
     try {
         const path = url.replace(BASE, "");
-        const res  = await scFetch(path);
+        const res  = await proxyFetch(path);
         if (!res) return JSON.stringify([]);
         const html = await res.text();
 
-        // Extract TMDB id from the page
-        const tmdbMatch = html.match(/tmdbId["\s:]+(\d+)/) ||
-                          html.match(/data-tmdb["\s:]+(\d+)/) ||
-                          html.match(/\/api\/(\d+)/);
-        if (!tmdbMatch) return JSON.stringify([]);
-        const tmdbId = tmdbMatch[1];
+        const tmdbId = (html.match(/data-tmdb-id="(\d+)"/) || [])[1] ||
+                       (html.match(/"tmdbId"\s*:\s*(\d+)/) || [])[1];
+        if (!tmdbId) return JSON.stringify([]);
 
         const isSeries = url.includes("/serie");
 
         if (!isSeries) {
-            // Movie — single episode pointing to stream API
             return JSON.stringify([{
-                href:   `${BASE}/api/${tmdbId}`,
+                href:   `${BASE}/api/player-sources/movie/${tmdbId}`,
                 number: 1,
             }]);
         }
 
-        // Series — find seasons + episodes
+        // Series
         const episodes = [];
-        const seasonMatches = [...html.matchAll(/data-season="(\d+)"/g)];
-        const seasons = [...new Set(seasonMatches.map(m => m[1]))];
-        if (seasons.length === 0) seasons.push("1");
+        const seasonNums = [...html.matchAll(/data-season-number="(\d+)"/g)].map(m => m[1]);
+        const seasons = seasonNums.length ? [...new Set(seasonNums)] : ["1"];
 
         for (const season of seasons) {
-            const sRes  = await scFetch(`/?tmdbId=${tmdbId}&season=${season}`);
-            const sHtml = sRes ? await sRes.text() : "";
-            const epMatches = [...sHtml.matchAll(/data-episode="(\d+)"/g)];
-            const eps = [...new Set(epMatches.map(m => m[1]))];
-            if (eps.length === 0) eps.push("1");
+            const sRes  = await proxyFetch(`/api/season/${tmdbId}?season=${season}`);
+            if (!sRes) continue;
+            const sData = await sRes.json();
+            const eps   = sData.episodes || [];
 
-            for (const ep of eps) {
+            if (eps.length === 0) {
                 episodes.push({
-                    href:   `${BASE}/api/${tmdbId}?type=tv&season=${season}&episode=${ep}`,
-                    number: parseInt(ep),
+                    href:   `${BASE}/api/player-sources/tv/${tmdbId}?season=${season}&episode=1`,
+                    number: parseInt(season) * 100 + 1,
+                });
+                continue;
+            }
+            for (const ep of eps) {
+                const epNum = ep.number || ep.episode_number || 1;
+                episodes.push({
+                    href:   `${BASE}/api/player-sources/tv/${tmdbId}?season=${season}&episode=${epNum}`,
+                    number: epNum,
                 });
             }
         }
 
         return JSON.stringify(episodes.length ? episodes : [{
-            href:   `${BASE}/api/${tmdbId}?type=tv&season=1&episode=1`,
+            href:   `${BASE}/api/player-sources/tv/${tmdbId}?season=1&episode=1`,
             number: 1,
         }]);
     } catch (e) {
@@ -118,25 +150,26 @@ async function extractEpisodes(url) {
 }
 
 // ── STREAM URL ────────────────────────────────────────────────────────────────
+// Called directly (not via proxy) so the request comes from the device IP
 async function extractStreamUrl(url) {
     try {
-        // url is already /api/{tmdbId} or /api/{tmdbId}?type=tv&...
         const path = url.replace(BASE, "");
-        const res  = await scFetch(path);
+        // Try direct first (works if Sora sends cookies or device IP is trusted)
+        const res = await directFetch(path);
         if (!res) return null;
 
         const data = await res.json();
         if (!data.sources || data.sources.length === 0) return null;
 
-        // Pick highest priority CDN mp4 source
+        // Best CDN MP4 by priority
         const cdn = data.sources
             .filter(s => s.provider === "cdn" && s.url)
-            .sort((a, b) => a.priority - b.priority)[0];
+            .sort((a, b) => (a.priority || 99) - (b.priority || 99))[0];
 
         if (cdn) return cdn.url;
 
-        // Fallback to first available source
-        return data.sources[0].url || null;
+        const any = data.sources.find(s => s.url);
+        return any ? any.url : null;
     } catch (e) {
         console.log("stream error:", e);
         return null;
