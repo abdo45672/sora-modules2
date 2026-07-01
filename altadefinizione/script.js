@@ -35,38 +35,25 @@ async function search(keyword) {
         if (!res) return JSON.stringify([]);
 
         const text = await res.text();
-        
-        // Parse the outer JSON first
-        let html = "";
-        try {
-            const data = JSON.parse(text);
-            html = data.html || "";
-        } catch {
-            html = text;
-        }
 
-        // Unescape the HTML (the JSON encoding escapes quotes and newlines)
-        html = html
-            .replace(/\\"/g, '"')
-            .replace(/\\n/g, '\n')
-            .replace(/\\t/g, '\t')
-            .replace(/\\\//g, '/');
+        // Extract data-attributes directly from raw JSON string (still escaped)
+        // Match data-tmdb-id=\"27205\" OR data-tmdb-id="27205"
+        const tmdbIds = [...text.matchAll(/data-tmdb-id=\\"(\d+)\\"/g)].map(x => x[1]);
+        const titles  = [...text.matchAll(/data-title=\\"([^"\\]+)\\"/g)].map(x => x[1]);
+        const urls    = [...text.matchAll(/data-url=\\"([^"\\]+)\\"/g)].map(x => x[1]);
+        const posters = [...text.matchAll(/data-poster=\\"([^"\\]+)\\"/g)].map(x => x[1]);
 
         const results = [];
-        const tmdbIds = [...html.matchAll(/data-tmdb-id="(\d+)"/g)].map(x => x[1]);
-        const titles  = [...html.matchAll(/data-title="([^"]+)"/g)].map(x => x[1]);
-        const urls    = [...html.matchAll(/data-url="([^"]+)"/g)].map(x => x[1]);
-        const posters = [...html.matchAll(/data-poster="([^"]+)"/g)].map(x => x[1]);
-
         for (let i = 0; i < tmdbIds.length; i++) {
+            if (!titles[i]) continue;
             results.push({
                 href:  BASE + (urls[i] || `/film/${tmdbIds[i]}`),
-                title: titles[i] || "",
+                title: titles[i],
                 image: posters[i] || "",
             });
         }
 
-        return JSON.stringify(results.filter(r => r.title));
+        return JSON.stringify(results);
     } catch (e) {
         console.log("search error:", e);
         return JSON.stringify([]);
@@ -161,7 +148,6 @@ async function extractStreamUrl(url) {
             .sort((a, b) => (a.priority || 99) - (b.priority || 99))[0];
 
         if (cdn) return cdn.url;
-
         const any = data.sources.find(s => s.url);
         return any ? any.url : null;
     } catch (e) {
