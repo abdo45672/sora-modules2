@@ -1,6 +1,6 @@
 {
   "sourceName": "AltaDefinizione",
-  "iconUrl": "https://altadefinizionestreaming.com/favicon.ico",
+  "iconUrl": "https://altadefinizionestreaming.com/img/logo-icon.png?v=1782941801375",
   "author": {
     "name": "Qrs.Yami",
     "icon": "https://avatars.githubusercontent.com/u/abdo45672"
@@ -8,7 +8,7 @@
   "version": "1.0",
   "language": "Italian",
   "streamType": "MP4",
-  "quality": "720p",
+  "quality": "4k",
   "baseUrl": "https://altadefinizionestreaming.com/",
   "searchBaseUrl": "https://altadefinizionestreaming.com/?s=%s",
   "scriptUrl": "https://raw.githubusercontent.com/abdo45672/sora-modules2/refs/heads/main/altadefinizione/script.js",
