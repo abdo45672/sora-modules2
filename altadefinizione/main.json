@@ -1,0 +1,22 @@
+{
+  "sourceName": "AltaDefinizione",
+  "iconUrl": "https://altadefinizionestreaming.com/favicon.ico",
+  "author": {
+    "name": "abdo45672",
+    "icon": "https://avatars.githubusercontent.com/u/abdo45672"
+  },
+  "version": "1.0",
+  "language": "Italian",
+  "streamType": "MP4",
+  "quality": "720p",
+  "baseUrl": "https://altadefinizionestreaming.com/",
+  "searchBaseUrl": "https://altadefinizionestreaming.com/?s=%s",
+  "scriptUrl": "https://raw.githubusercontent.com/abdo45672/sora-modules2/refs/heads/main/altadefinizione/script.js",
+  "asyncJS": true,
+  "type": "movies",
+  "supportsSora": true,
+  "supportsLuna": true,
+  "downloadSupport": false,
+  "supportsTsumi": true,
+  "supportsHiyoku": true
+}
